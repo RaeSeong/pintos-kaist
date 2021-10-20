@@ -23,10 +23,12 @@ vm_file_init (void) {
 /* Initialize the file backed page */
 bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
-	/* Set up the handler */
+	struct file* file = ((struct mmap_info*)page ->uninit.aux)->file;
 	page->operations = &file_ops;
 
 	struct file_page *file_page = &page->file;
+	file_page -> file = file;
+	return true;
 }
 
 /* Swap in the page by read contents from the file. */
@@ -56,16 +58,4 @@ do_mmap (void *addr, size_t length, int writable,
 /* Do the munmap */
 void
 do_munmap (void *addr) {
-}
-
-/* Initialize the file mapped page */
-bool
-file_map_initializer (struct page *page, enum vm_type type, void *kva) {
-	/* Set up the handler */
-	struct file* file = ((struct mmap_info*)page ->uninit.aux)->file;
-	page->operations = &file_ops;
-
-	struct file_page *file_page = &page->file;
-	file_page -> file = file;
-	return true;
 }

@@ -69,7 +69,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			uninit_new (page, upage, init, type, aux, anon_initializer);
 		}
 		else if (VM_TYPE(type) == VM_FILE){
-			uninit_new (page, upage, init, type, aux, file_map_initializer);
+			uninit_new (page, upage, init, type, aux, file_backed_initializer);
 		}
 
 		page -> writable = writable_aux;
@@ -142,6 +142,15 @@ vm_get_frame (void) {
 /* Growing the stack. */
 static void
 vm_stack_growth (void *addr UNUSED) {
+	void *stack_bottom = pg_round_down(addr);
+	size_t req_stack_size = USER_STACK - (uintptr_t)stack_bottom;
+	if(req_stack_size > (1 << 20)) PANIC("Stack limit exceeded!\n");
+
+	void *growing_stack_bottom = stack_bottom;
+	while((uintptr_t)growing_stack_bottom < USER_STACK && vm_alloc_page(VM_ANON | VM_STACK, growing_stack_bottom, true)){
+		growing_stack_bottom += PGSIZE;
+	}
+	vm_claim_page(stack_bottom);
 }
 
 /* Handle the fault on write_protected page */
@@ -156,10 +165,17 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 		bool user UNUSED, bool write UNUSED, bool not_present UNUSED) {
 	struct thread *curr = thread_current ();
 	struct supplemental_page_table *spt UNUSED = &curr->spt;
-	struct page* page = spt_find_page (spt, addr);
+	
 	/* TODO: Validate the fault */
 	/* TODO: Your code goes here */
 	if (is_kernel_vaddr (addr) && user) return false;
+
+	// void *stack_bottom = pg_round_down(curr->saved_sp); 현재 스택 사이즈 상관 없이 최대 스택 사이즈로 조건 변경함
+	if(write && (USER_STACK - (1<<20) - PGSIZE <= addr && (uintptr_t)addr < USER_STACK)){
+		vm_stack_growth(addr);
+		return true;
+	}
+	struct page* page = spt_find_page (spt, addr);
 	if (page == NULL) return false;
 	if (write && !not_present) return vm_handle_wp (page);
 	return vm_do_claim_page (page);
@@ -231,6 +247,23 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
 	while (hash_next(&i))
 	{
 		struct page *page = hash_entry (hash_cur (&i), struct page, hash_elem);
+
+		if(page->operations->type == VM_UNINIT){
+			vm_initializer *init = page->uninit.init;
+			bool writable = page->writable;
+			int type = page->uninit.type;
+			if(type & VM_ANON){
+				struct load_info *li = malloc(sizeof(struct load_info));
+				li->file = file_duplicate(((struct load_info *)page->uninit.aux)->file);
+				li->page_read_bytes = ((struct load_info *)page->uninit.aux)->page_read_bytes;
+				li->page_zero_bytes = ((struct load_info *)page->uninit.aux)->page_zero_bytes;
+				li->ofs = ((struct load_info *)page->uninit.aux)->ofs;
+				vm_alloc_page_with_initializer(type, page->va, writable, init, (void *)li);
+			}
+			else if(type & VM_FILE){
+
+			}
+		}
 		/* Handle ANON/FILE page*/
 		if (page_get_type(page) == VM_ANON)
 		{
@@ -241,7 +274,11 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
 				return false;
 			memcpy(new_page->frame->kva, page->frame->kva, PGSIZE);
 		}
+		else if(page_get_type(page) == VM_FILE){
+
+		}
 	}
+	return true;
 }
 
 static void

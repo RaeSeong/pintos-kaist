@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include "intrinsic.h"
+#include "vm/file.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
@@ -32,6 +33,9 @@ unsigned tell(int fd);
 int wait (tid_t tid);
 tid_t fork(const char *thread_name, struct intr_frame *f);
 int dup2(int oldfd, int newfd);
+
+static void *mmap(void *addr, size_t length, int writable, int fd, off_t offset);
+static void munmap(void *addr);
 
 /*              system call need func by inkyu            */
 int add_file_to_fdt(struct file *file);
@@ -120,6 +124,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		break;
 	case SYS_DUP2:
 		f->R.rax = dup2(f->R.rdi, f->R.rsi);
+		break;
+	//project 3
+	case SYS_MMAP:
+		f->R.rax = (uint64_t)mmap((void *)f->R.rdi, (size_t)f->R.rsi, (int)f->R.rdx, (int)f->R.r10, (off_t)f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		munmap((void *)f->R.rdi);
 		break;
 	default:
 		break;
@@ -396,4 +407,22 @@ static void
 check_writable_addr(void* ptr){
 	struct page *page = spt_find_page (&thread_current() -> spt, ptr);
 	if (page == NULL || !page->writable) exit(-1);
+}
+
+static void *mmap(void *addr, size_t length, int writable, int fd, off_t offset){
+	if(addr == 0 || (!is_user_vaddr(addr)) || (uint64_t)addr % PGSIZE != 0 || offset % PGSIZE != 0
+	|| (uint64_t)addr + length == 0 || !is_user_vaddr((uint64_t)addr + length))
+		return NULL;
+	for(uint64_t i = (uint64_t)addr; i < (uint64_t)addr + length; i += PGSIZE){
+		if(spt_find_page(&thread_current()->spt, (void *)i) != NULL)
+			return NULL;
+	}
+	struct file *file = find_file_by_fd(fd);
+	if(file == NULL)
+		return;
+	return do_mmap(addr, length, writable, file, offset);
+}
+
+static void munmap(void *addr){
+	do_munmap(addr);
 }

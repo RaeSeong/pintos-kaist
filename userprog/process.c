@@ -810,7 +810,7 @@ setup_stack (struct intr_frame *if_) {
 	// 	else
 	// 		palloc_free_page (kpage);
 	// }
-	if (!vm_alloc_page (VM_ANON | VM_MARKER_0, stack_bottom ,true)) return false;;
+	if (!vm_alloc_page (VM_ANON | VM_STACK, stack_bottom ,true)) return false;;
 	if (!vm_claim_page(stack_bottom)) return false;
 	memset(stack_bottom, 0, PGSIZE);
 	if_->rsp = USER_STACK;
