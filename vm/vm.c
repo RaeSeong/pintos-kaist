@@ -13,6 +13,10 @@
 /* Initializes the virtual memory subsystem by invoking each subsystem's
  * intialize codes. */
 
+static struct list frame_list;
+static struct list_elem *clock_elem;
+static struct lock clock_lock;
+
 static struct lock spt_kill_lock;
 
 void
@@ -55,7 +59,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 		vm_initializer *init, void *aux) {
 
 	struct supplemental_page_table *spt = &thread_current ()->spt;
-	bool writable_aux = writable;
 
 	/* Check wheter the upage is already occupied or not. */
 	if (spt_find_page (spt, upage) == NULL) {
@@ -72,11 +75,10 @@ vm_alloc_page_with_initializer (enum vm_type type, void *upage, bool writable,
 			uninit_new (page, upage, init, type, aux, file_backed_initializer);
 		}
 
-		page -> writable = writable_aux;
+		page -> writable = writable;
 		spt_insert_page (spt, page);
 		return true;
 	}
-err:
 	return false;
 }
 
@@ -106,11 +108,37 @@ spt_remove_page (struct supplemental_page_table *spt, struct page *page) {
 	return true;
 }
 
+static struct list_elem *list_next_cycle(struct list *lst, struct list_elem * elem){
+	struct list_elem *cycle = elem;
+	if(cycle == list_back(lst))
+		cycle = list_front(lst);
+	else
+		cycle = list_next(elem);
+	return cycle;
+}
 /* Get the struct frame, that will be evicted. */
 static struct frame *
 vm_get_victim (void) {
 	struct frame *victim = NULL;
 	 /* TODO: The policy for eviction is up to you. */
+	struct thread *curr = thread_current();
+
+	lock_acquire(&clock_lock);
+	struct list_elem *cand_elem = clock_elem;
+	if(cand_elem == NULL && !list_empty(&frame_list))
+		cand_elem = list_front(&frame_list);
+	while(cand_elem != NULL){
+		victim = list_entry(cand_elem, struct frame, elem);
+		if(!pml4_is_accessed(curr->pml4, victim->page->va))
+			break;
+		pml4_set_accessed(curr->pml4, victim->page->va, false);
+
+		cand_elem = list_next_cycle(&frame_list, cand_elem);
+	}
+
+	clock_elem = list_next_cycle(&frame_list, cand_elem);
+	list_remove(cand_elem);
+	lock_release(&clock_lock);
 
 	return victim;
 }
@@ -121,6 +149,15 @@ static struct frame *
 vm_evict_frame (void) {
 	struct frame *victim UNUSED = vm_get_victim ();
 	/* TODO: swap out the victim and return the evicted frame. */
+	if(victim == NULL)
+		return NULL;
+	struct page *page = victim->page;
+	bool swap_done = swap_out(page);
+	if(!swap_done)
+		PANIC("Swap is full\n");
+	
+	victim->page = NULL;
+	memset(victim->kva, 0, PGSIZE);
 
 	return NULL;
 }
@@ -135,6 +172,11 @@ vm_get_frame (void) {
 	frame -> kva = palloc_get_page (PAL_USER);
 	frame -> page = NULL;
 
+	if(frame->kva == NULL){
+		free(frame);
+		frame = vm_evict_frame();
+	}
+
 	ASSERT (frame->kva != NULL);
 	return frame;
 }
@@ -148,9 +190,10 @@ vm_stack_growth (void *addr UNUSED) {
 
 	void *growing_stack_bottom = stack_bottom;
 	while((uintptr_t)growing_stack_bottom < USER_STACK && vm_alloc_page(VM_ANON | VM_STACK, growing_stack_bottom, true)){
+		vm_claim_page(growing_stack_bottom);
 		growing_stack_bottom += PGSIZE;
 	}
-	vm_claim_page(stack_bottom);
+	// vm_claim_page(stack_bottom);
 }
 
 /* Handle the fault on write_protected page */
@@ -171,7 +214,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	if (is_kernel_vaddr (addr) && user) return false;
 
 	// void *stack_bottom = pg_round_down(curr->saved_sp); 현재 스택 사이즈 상관 없이 최대 스택 사이즈로 조건 변경함
-	if(write && (USER_STACK - (1<<20) - PGSIZE <= addr && (uintptr_t)addr < USER_STACK)){
+	if(write && (pg_round_down(f->rsp) - PGSIZE <= addr && (uintptr_t)addr < USER_STACK)){
 		vm_stack_growth(addr);
 		return true;
 	}
@@ -265,7 +308,7 @@ bool supplemental_page_table_copy(struct supplemental_page_table *dst UNUSED,
 			}
 		}
 		/* Handle ANON/FILE page*/
-		if (page_get_type(page) == VM_ANON)
+		else if (page_get_type(page) == VM_ANON)
 		{
 			if (!vm_alloc_page(page->operations->type, page->va, page->writable))
 				return false;

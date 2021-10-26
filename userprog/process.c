@@ -336,6 +336,7 @@ process_exit (void) {
 	if (cur->pml4 != NULL){
 		// Print termination message when user process terminates
 		process_cleanup ();
+		printf("%s: exit(%d)\n", thread_name(), cur->exit_status); // Process Termination Message
 	}
 
 	sema_up(&cur->wait_sema);
@@ -719,11 +720,11 @@ lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
-	/* Load the segment from the file */
-	/* This called when the first page fault occurs on address VA. */
-	/* VA is available when calling this function. */
-	struct load_info* li = (struct load_info *) aux;
+	
 	if (page == NULL) return false;
+	
+	struct load_info* li = (struct load_info *) aux;
+	
 	ASSERT(li ->page_read_bytes <=PGSIZE);
 	ASSERT(li -> page_zero_bytes <= PGSIZE);
 	/* Load this page. */
@@ -859,7 +860,7 @@ void argument_stack(char **argv, int argc, struct intr_frame *if_)
 	if_->R.rsi = rsp;
 
 	rsp -= 8;
-	memset(rsp, 0, sizeof(char*));
+	// memset(rsp, 0, sizeof(char*));
 	if_->rsp = rsp;
 
 	

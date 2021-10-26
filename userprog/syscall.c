@@ -146,8 +146,7 @@ void exit(int status)
 {
 	struct thread *cur = thread_current();
 	cur->exit_status = status;
-
-	printf("%s: exit(%d)\n", thread_name(), status); // Process Termination Message
+	
 	thread_exit();
 }
 
@@ -411,15 +410,16 @@ check_writable_addr(void* ptr){
 
 static void *mmap(void *addr, size_t length, int writable, int fd, off_t offset){
 	if(addr == 0 || (!is_user_vaddr(addr)) || (uint64_t)addr % PGSIZE != 0 || offset % PGSIZE != 0
-	|| (uint64_t)addr + length == 0 || !is_user_vaddr((uint64_t)addr + length))
+	|| (uint64_t)addr + length == 0 || !is_user_vaddr((uint64_t)addr + length) || length == 0)
 		return NULL;
 	for(uint64_t i = (uint64_t)addr; i < (uint64_t)addr + length; i += PGSIZE){
 		if(spt_find_page(&thread_current()->spt, (void *)i) != NULL)
 			return NULL;
 	}
 	struct file *file = find_file_by_fd(fd);
-	if(file == NULL)
-		return;
+	if(file == NULL || fd == 0 || fd == 1) // thread_current()->fdTable[fd] == 0 || thread_current()->fdTable[fd] == 1)
+		return NULL;
+
 	return do_mmap(addr, length, writable, file, offset);
 }
 
