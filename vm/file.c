@@ -34,11 +34,12 @@ vm_file_init (void) {
 /* Initialize the file backed page */
 bool
 file_backed_initializer (struct page *page, enum vm_type type, void *kva) {
+	struct file_page *file_page = &page->file;
 	struct file* file = ((struct mmap_info*)page ->uninit.aux)->file;
+	file_page -> file = file;
+	
 	page->operations = &file_ops;
 
-	struct file_page *file_page = &page->file;
-	file_page -> file = file;
 	return true;
 }
 
@@ -89,8 +90,8 @@ file_backed_destroy (struct page *page) {
 	file_close(file_page->file);
 
 	if(page->frame != NULL){
-		// list_remove(&page->frame->elem);
-		// free(page->frame);
+		list_remove(&page->frame->elem);
+		free(page->frame);
 	}
 }
 
@@ -99,7 +100,7 @@ static bool lazy_load_file(struct page *page, void *aux){
 	file_seek(mi->file, mi->offset);
 	page->file.size = file_read(mi->file, page->va, mi->read_bytes);
 	page->file.ofs = mi->offset;
-	if(page->file.size != PGSIZE)
+	if(page->file.size < PGSIZE)
 		memset(page->va + page->file.size, 0, PGSIZE - page->file.size);
 	pml4_set_dirty(thread_current()->pml4, page->va, false);
 	free(mi);
@@ -112,7 +113,8 @@ do_mmap (void *addr, size_t length, int writable,
 	off_t ofs = offset;
 	uint64_t initaddr = addr;
 	uint64_t read_bytes;
-	for(uint64_t i = length > file_length(file) ? file_length(file) : length; i > 0; i -= read_bytes){
+	uint64_t real_len = length > file_length(file) ? file_length(file) : length;
+	for(uint64_t i = real_len; i > 0; i -= read_bytes){
 		struct mmap_info *mi = malloc(sizeof(struct mmap_info));
 		read_bytes = i >= PGSIZE ? PGSIZE : i;
 		mi->file = file_reopen(file);
@@ -124,7 +126,7 @@ do_mmap (void *addr, size_t length, int writable,
 	}
 	struct mmap_file_info *mfi = malloc(sizeof(struct mmap_file_info));
 	mfi->start = (uint64_t)addr;
-	mfi->end = (uint64_t)pg_round_down((uint64_t)addr + length - 1);
+	mfi->end = (uint64_t)pg_round_down((uint64_t)addr + real_len - 1);
 	list_push_back(&mmap_file_list, &mfi->elem);
 	return addr;
 }

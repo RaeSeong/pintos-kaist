@@ -4,7 +4,6 @@
 #include "devices/disk.h"
 #include <bitmap.h>
 #include "threads/vaddr.h"
-#include "threads/mmu.h"
 
 #define CEILING(x, y) (((x) + (y) - 1) / (y))
 #define SECTORS_PER_PAGE CEILING(PGSIZE, DISK_SECTOR_SIZE)
@@ -35,7 +34,7 @@ static struct bitmap *swap_table;
 void
 vm_anon_init (void) {
 	/* TODO: Set up the swap_disk. */
-	swap_disk = NULL;
+	// swap_disk = NULL;
 	swap_disk = disk_get(1,1);
 
 	disk_sector_t num_sector = disk_size(swap_disk);
@@ -108,16 +107,12 @@ anon_swap_out (struct page *page) {
 /* Destroy the anonymous page. PAGE will be freed by the caller. */
 static void
 anon_destroy (struct page *page) {
-	if (&page->frame!= NULL){
-		// list_remove (&page->frame->elem);
-		// free(page->frame);
-	}
-	else {
-		// Swapped anon page case
-		struct anon_page *anon_page = &page->anon;
-		ASSERT (anon_page->swap_slot_idx != INVALID_SLOT_IDX);
+	if(&page->frame != NULL)
+		return;
+	// Swapped anon page case
+	struct anon_page *anon_page = &page->anon;
+	ASSERT (anon_page->swap_slot_idx != INVALID_SLOT_IDX);
 
-		// Clear swap table
-		bitmap_set (swap_table, anon_page->swap_slot_idx, false);
-	}
+	// Clear swap table
+	bitmap_set (swap_table, anon_page->swap_slot_idx, false);
 }

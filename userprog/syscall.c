@@ -78,6 +78,8 @@ syscall_init (void) {
 void
 syscall_handler (struct intr_frame *f UNUSED) {
 	// TODO: Your implementation goes here.
+	thread_current()->saved_sp = f->rsp;
+	
 	switch (f->R.rax)
 	{
 	case SYS_HALT:

@@ -30,6 +30,8 @@ vm_init (void) {
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
 	lock_init(&spt_kill_lock);
+	list_init(&frame_list);
+	lock_init(&clock_lock);
 }
 
 /* Get the type of the page. This function is useful if you want to know the
@@ -159,7 +161,7 @@ vm_evict_frame (void) {
 	victim->page = NULL;
 	memset(victim->kva, 0, PGSIZE);
 
-	return NULL;
+	return victim;
 }
 
 /* palloc() and get frame. If there is no available page, evict the page
@@ -213,8 +215,8 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr UNUSED,
 	/* TODO: Your code goes here */
 	if (is_kernel_vaddr (addr) && user) return false;
 
-	// void *stack_bottom = pg_round_down(curr->saved_sp); 현재 스택 사이즈 상관 없이 최대 스택 사이즈로 조건 변경함
-	if(write && (pg_round_down(f->rsp) - PGSIZE <= addr && (uintptr_t)addr < USER_STACK)){
+	if(write && (USER_STACK - (1<<20) - PGSIZE <= addr && (uintptr_t)addr < USER_STACK)){
+	// if(write && (pg_round_down(curr->saved_sp) - PGSIZE <= addr && (uintptr_t)addr < USER_STACK)){
 		vm_stack_growth(addr);
 		return true;
 	}
@@ -252,6 +254,7 @@ vm_do_claim_page (struct page *page) {
 	frame->page = page;
 	page->frame = frame;
 
+	list_push_back(&frame_list, &frame->elem);
 	/* TODO: Insert page table entry to map page's VA to frame's PA. */
 	if (!pml4_set_page (curr -> pml4, page -> va, frame->kva, page -> writable))
 		return false;
